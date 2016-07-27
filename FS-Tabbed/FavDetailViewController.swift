@@ -1,0 +1,280 @@
+//
+//  DetailViewController.swift
+//  Modules
+//
+//  Created by Abhijith Sreekar on 29/1/16.
+//  Copyright © 2016 Abhijith Sreekar. All rights reserved.
+//
+
+import UIKit
+import Social
+import MessageUI
+
+class FavDetailViewController: UIViewController,UITextFieldDelegate,UIScrollViewDelegate,MFMailComposeViewControllerDelegate{
+
+    
+    @IBOutlet weak var scrollView2: UIScrollView!
+    @IBOutlet weak var scrollView: UIScrollView!
+    @IBOutlet weak var label: UILabel!
+    @IBOutlet weak var imageView: UIImageView?
+    @IBOutlet weak var comments: UITextField!
+    var favPhoto: favorites?
+
+    var favoritesDB:COpaquePointer = nil;
+    var update : COpaquePointer = nil
+    
+    let SQLITE_TRANSIENT = unsafeBitCast(-1,sqlite3_destructor_type.self)
+    
+    
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        scrollView.minimumZoomScale = 1.0
+        scrollView.maximumZoomScale = 6.0
+        
+        comments.delegate = self
+          registerForKeyboardNotifications()
+        
+        if favPhoto != nil {
+
+            let pic1 = NSURL(string: (favPhoto?.imageURL)!)
+            let imageData = NSData(contentsOfURL: pic1!)
+            self.imageView!.image = UIImage(data: imageData!)
+                
+            }
+            
+        label.text = favPhoto?.title
+            
+//            let url = NSURL(string: (favPhoto?.imageURL)!)
+//            print(url)
+//            let data = NSData(contentsOfURL: url!)
+//            print(data)
+            //imageView!.image = UIImage(data: data!)
+            
+            
+            //                let data = NSData(contentsOfURL: favPhoto!.imageURL)
+            //                controller.addImage(UIImage(data: data!));
+            
+            
+            comments.text = favPhoto?.comments
+
+        let paths = NSSearchPathForDirectoriesInDomains(.DocumentDirectory, .UserDomainMask, true) [0] as String
+        print(paths)
+        
+        let docsdir = paths + "/fsfavorites.sqlite"
+        
+        if (sqlite3_open(docsdir, &favoritesDB)==SQLITE_OK)
+        {
+            let sql = "CREATE TABLE IF NOT EXISTS FSFAVORITES (ID INTEGER PRIMARY KEY AUTOINCREMENT, TITLE TEXT,COMMENTS TEXT, IMAGEURL TEXT)"
+            if(sqlite3_exec(favoritesDB, sql,nil, nil, nil) != SQLITE_OK)
+            {
+                print("FAILED TO CREATE");
+                print(sqlite3_errmsg(favoritesDB))
+            }
+        }
+            
+        else
+        {
+            print("Failed to open database")
+            print(sqlite3_errmsg(favoritesDB))
+        }
+        prepareStatement();
+        
+    }
+
+    func viewForZoomingInScrollView(scrollView: UIScrollView) -> UIView? {
+        return imageView
+    }
+    
+    func prepareStatement()
+    {
+        print("preparestatement")
+        var sqlString : String
+        
+        
+        sqlString = "UPDATE FSFAVORITES SET COMMENTS=? WHERE TITLE = ?";
+        let cSql = sqlString.cStringUsingEncoding(NSUTF8StringEncoding)
+        sqlite3_prepare_v2(favoritesDB, cSql!, -1, &update, nil)
+    }
+    
+    
+    @IBAction func saveImage(sender: AnyObject) {
+        UIImageWriteToSavedPhotosAlbum(imageView!.image!, self, "image:didFinishSavingWithError:contextInfo:", nil)
+    }
+    
+    func image(image: UIImage, didFinishSavingWithError error: NSError?, contextInfo:UnsafePointer<Void>) {
+        if error == nil {
+            let ac = UIAlertController(title: "Saved!", message: "Your image has been saved to your photos.", preferredStyle: .Alert)
+            ac.addAction(UIAlertAction(title: "OK", style: .Default, handler: nil))
+            presentViewController(ac, animated: true, completion: nil)
+        } else {
+            let ac = UIAlertController(title: "Save error", message: error?.localizedDescription, preferredStyle: .Alert)
+            ac.addAction(UIAlertAction(title: "OK", style: .Default, handler: nil))
+            presentViewController(ac, animated: true, completion: nil)
+        }
+    }
+   
+    @IBAction func updateSender(sender: AnyObject) {
+        comments.resignFirstResponder()
+        let titleStr = favPhoto?.title
+        let commentsStr = comments.text
+        
+        sqlite3_bind_text(update, 1, commentsStr!, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(update, 2, titleStr!, -1, SQLITE_TRANSIENT)
+        
+        
+        if(sqlite3_step(update) == SQLITE_DONE)
+        {
+            let alertPopUp : UIAlertController = UIAlertController(title: "Successful", message: "Comments updated successfully", preferredStyle: UIAlertControllerStyle.Alert)
+            let cancelAction = UIAlertAction(title: "OK", style: .Cancel){ action -> Void in }
+            alertPopUp.addAction(cancelAction)
+            self.presentViewController(alertPopUp, animated: true, completion: nil)
+            print("comments updated succesfully")
+            
+        }
+        else
+        {
+            print("problem updating comments")
+            print("Error code: " , sqlite3_errcode(favoritesDB));
+            let error = String.fromCString(sqlite3_errmsg(favoritesDB));
+            print("Error msg: ", error)
+        }
+        sqlite3_reset(update)
+        sqlite3_clear_bindings(update)
+    }
+    
+    
+    @IBAction func share(sender: AnyObject) {
+        var actionSheetController = UIAlertController()
+        actionSheetController = UIAlertController(title: "Share with", message: "", preferredStyle: .ActionSheet)
+        
+        //Create and add the Cancel action
+        let cancelAction: UIAlertAction = UIAlertAction(title: "Cancel", style: .Cancel) { action -> Void in
+            //Just dismiss the action sheet
+        }
+        actionSheetController.addAction(cancelAction)
+        
+        //Create and add first option action
+        let Facebook: UIAlertAction = UIAlertAction(title: "Facebook", style: .Default) { action -> Void in
+            if (SLComposeViewController.isAvailableForServiceType(SLServiceTypeFacebook)) {
+                
+                let controller = SLComposeViewController(forServiceType: SLServiceTypeFacebook)
+                
+                //controller.setInitialText("Test Post from FS-Tabbed Demo");
+                //controller.addURL(NSURL(string: "http://www.iss.nus.edu.sg"));
+                let data = NSData(contentsOfURL: NSURL(string:self.favPhoto!.imageURL)!)
+                controller.addImage(UIImage(data: data!));
+                
+                
+                self.presentViewController(controller, animated:true, completion:nil);
+                
+            } else {
+                // 3
+                print("no Facebook account found on device")
+            }
+        }; actionSheetController.addAction(Facebook)
+        
+        let Twitter: UIAlertAction = UIAlertAction(title: "Twitter", style: .Default) { action -> Void in
+            
+            if(SLComposeViewController.isAvailableForServiceType(  SLServiceTypeTwitter)) {
+                let controller = SLComposeViewController(         forServiceType: SLServiceTypeTwitter)
+                
+                if (SLComposeViewController.isAvailableForServiceType(      SLServiceTypeTwitter)) {
+                    
+                    controller.setInitialText(        "This is a tweet from iOS CA: FS-Tabbed");
+                    let data = NSData(contentsOfURL: NSURL(string:self.favPhoto!.imageURL)!)
+                    controller.addImage(UIImage(data: data!));
+                    
+                    self.presentViewController(controller,          animated:true, completion:nil);
+                }
+            } else {
+                print("no twitter account found on device")
+            }
+        }; actionSheetController.addAction(Twitter)
+        
+        let Email: UIAlertAction = UIAlertAction(title: "Email", style: .Default) { action -> Void in
+            
+            let emailTitle = "Flickr Image Share"
+            let messageBody = self.favPhoto?.title
+            let mc: MFMailComposeViewController = MFMailComposeViewController()
+            mc.mailComposeDelegate = self
+            mc.setSubject(emailTitle)
+            mc.setMessageBody("This is from IOS CA- FS TABBED" + "\n" + messageBody!, isHTML: false)
+            let data = NSData(contentsOfURL: NSURL(string:self.favPhoto!.imageURL)!)
+            mc.addAttachmentData(data!, mimeType: "image/png", fileName: "images.png")
+            self.presentViewController(mc, animated: true, completion: nil)
+        }
+        actionSheetController.addAction(Email)
+        
+        func mailComposeController(controller: MFMailComposeViewController, didFinishWithResult result: MFMailComposeResult, error: NSError?) {
+            dismissViewControllerAnimated(true, completion: nil)
+        }
+        self.presentViewController(actionSheetController,animated:true, completion:nil)
+        
+    }
+    
+    
+    override func didReceiveMemoryWarning() {
+        super.didReceiveMemoryWarning()
+        // Dispose of any resources that can be recreated.
+    }
+    
+    func textFieldShouldReturn(textField: UITextField) -> Bool {
+        comments.resignFirstResponder()
+        return true
+    }
+
+    func registerForKeyboardNotifications()
+    {
+        //Adding notifies on keyboard appearing
+        NSNotificationCenter.defaultCenter().addObserver(self, selector: "keyboardWasShown:", name: UIKeyboardWillShowNotification, object: nil)
+        NSNotificationCenter.defaultCenter().addObserver(self, selector: "keyboardWillBeHidden:", name: UIKeyboardWillHideNotification, object: nil)
+    }
+    
+    
+    func deregisterFromKeyboardNotifications()
+    {
+        //Removing notifies on keyboard appearing
+        NSNotificationCenter.defaultCenter().removeObserver(self, name: UIKeyboardWillShowNotification, object: nil)
+        NSNotificationCenter.defaultCenter().removeObserver(self, name: UIKeyboardWillHideNotification, object: nil)
+    }
+    
+    func keyboardWasShown(notification: NSNotification)
+    {
+        //Need to calculate keyboard exact size due to Apple suggestions
+        self.scrollView2.scrollEnabled = true
+        let info : NSDictionary = notification.userInfo!
+        let keyboardSize = (info[UIKeyboardFrameBeginUserInfoKey] as? NSValue)?.CGRectValue().size
+        let contentInsets : UIEdgeInsets = UIEdgeInsetsMake(0.0, 0.0, keyboardSize!.height, 0.0)
+        
+        self.scrollView2.contentInset = contentInsets
+        self.scrollView2.scrollIndicatorInsets = contentInsets
+        
+        var aRect : CGRect = self.view.frame
+        aRect.size.height -= keyboardSize!.height
+        if let activeFieldPresent = comments
+        {
+            if (!CGRectContainsPoint(aRect, activeFieldPresent.frame.origin))
+            {
+                self.scrollView2.scrollRectToVisible(activeFieldPresent.frame, animated: true)
+            }
+        }
+    }
+    
+    func keyboardWillBeHidden(notification: NSNotification)
+    {
+        //Once keyboard disappears, restore original positions
+        let info : NSDictionary = notification.userInfo!
+        let keyboardSize = (info[UIKeyboardFrameBeginUserInfoKey] as? NSValue)?.CGRectValue().size
+        let contentInsets : UIEdgeInsets = UIEdgeInsetsMake(0.0, 0.0, -keyboardSize!.height, 0.0)
+        self.scrollView2.contentInset = contentInsets
+        self.scrollView2.scrollIndicatorInsets = contentInsets
+        self.view.endEditing(true)
+        self.scrollView2.scrollEnabled = false
+        
+    }
+
+
+}
+
